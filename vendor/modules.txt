@@ -1,0 +1,2 @@
+# github.com/kellydunn/go-opc v0.1.0
+github.com/kellydunn/go-opc
