@@ -56,6 +56,9 @@ func New(host string, port int, width, height int) *OPC {
 	}
 }
 
+// LED initializes a set of LEDs
+// This method is not typically called directly; rather, use one of the
+// helpers, e.g., LEDStrip, based on the type of LED hardware you have
 func (o *OPC) LED(index, x, y int) {
 	// For convenience, automatically grow the PixelLocations array
 	if o.PixelLocations == nil {
@@ -70,6 +73,7 @@ func (o *OPC) LED(index, x, y int) {
 	o.PixelLocations[index] = x + o.Width*y
 }
 
+// LEDStrip initializes a strip of LEDs
 func (o *OPC) LEDStrip(index, count int, x, y, spacing, angle float64, reversed bool) {
 	s := math.Sin(angle)
 	c := math.Cos(angle)
@@ -87,6 +91,18 @@ func (o *OPC) LEDStrip(index, count int, x, y, spacing, angle float64, reversed 
 		)
 	}
 }
+
+// TODO [bosgood] Implement
+// func (o *OPC) LEDRing()
+// func (o *OPC) LEDGrid()
+// func (o *OPC) LEDGrid8x8()
+// func (o *OPC) SetDithering(enabled bool)
+// func (o *OPC) SetInterpolation(enabled bool)
+// func (o *OPC) StatusLEDAuto()
+// func (o *OPC) SetStatusLED(on bool)
+// func (o *OPC) SetColorCorrection(s string)
+// func (o *OPC) SendFirmwareConfigPacket(s string)
+// func (o *OPC) SendColorCorrectionPacket(s string)
 
 // Draw maps the pixel array to color values and sends it to the OPC server
 func (o *OPC) Draw() error {
@@ -165,3 +181,6 @@ func (o *OPC) Close() {
 	}
 	o.Pending = nil
 }
+
+// Run starts the message loop
+func (o *OPC) Run() {}
