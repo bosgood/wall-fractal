@@ -31,14 +31,15 @@ func main() {
 
 	log.Printf("Connected to server at: %s", addr)
 
-	for i := 0; i < 50; i++ {
-		m := opc.NewMessage(uint8(opcChannel))
-		m.SetPixelColor(i, 255, 255, 255)
+	for ch := 1; ch < 64; ch++ {
+		m := opc.NewMessage(uint8(ch))
+		for i := 0; i < 64; i++ {
+			m.SetPixelColor(i, 255, 255, 255)
+		}
 		err = c.Send(m)
 		if err != nil {
 			log.Fatalf("FATAL: failed to send message: %s", err)
 		}
+		log.Printf("Sent message to OPC channel %d", ch)
 	}
-
-	log.Printf("Sent message to OPC channel %d", opcChannel)
 }
