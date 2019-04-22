@@ -13,3 +13,7 @@
 
 # Compiled binaries
 dist/
+
+# Temp directories
+_tmp/
+
