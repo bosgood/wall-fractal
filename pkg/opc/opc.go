@@ -130,6 +130,9 @@ func (o *OPC) LEDStrip(index, count int, x, y, spacing, angle float64, reversed 
 
 // draw maps the pixel array to color values and sends it to the OPC server
 func (o *OPC) draw() error {
+	if o.pixels == nil {
+		return nil
+	}
 	numPixels := len(o.pixelLocations)
 	ledAddress := 4
 	o.SetPixelCount(numPixels)
