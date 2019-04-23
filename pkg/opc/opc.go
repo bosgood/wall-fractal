@@ -10,6 +10,8 @@ import (
 const (
 	// DefaultRefreshRate is the frequency at which the pixel data will be sent
 	DefaultRefreshRate = 500 * time.Millisecond
+	// DefaultReceiveBufferSize is the number of screens to buffer in memory if the connection is backed up
+	DefaultReceiveBufferSize = 25
 )
 
 // Color represents an RGB value with alpha
@@ -37,18 +39,19 @@ func ColorFromARGB(a, r, g, b byte) Color {
 
 // OPC manages connections to an Open Pixel Control server
 type OPC struct {
-	addr            string
-	width           int
-	height          int
-	pixelLocations  []int
-	packetData      []byte
-	firmwareConfig  byte
-	colorCorrection string
-	connection      net.Conn
-	pixels          []Color
-	stop            chan struct{}
-	receive         chan []Color
-	refreshRate     time.Duration
+	addr              string
+	width             int
+	height            int
+	pixelLocations    []int
+	packetData        []byte
+	firmwareConfig    byte
+	colorCorrection   string
+	connection        net.Conn
+	pixels            []Color
+	stop              chan struct{}
+	receive           chan []Color
+	refreshRate       time.Duration
+	receiveBufferSize int
 }
 
 // New creates a new OPC client
@@ -58,17 +61,22 @@ func New(addr string, width, height int, refreshRate time.Duration) *OPC {
 		rate = DefaultRefreshRate
 	}
 	return &OPC{
-		addr:        addr,
-		width:       width,
-		height:      height,
-		stop:        make(chan struct{}),
-		receive:     make(chan []Color),
-		refreshRate: rate,
+		addr:              addr,
+		width:             width,
+		height:            height,
+		stop:              make(chan struct{}),
+		receive:           make(chan []Color, DefaultReceiveBufferSize),
+		refreshRate:       rate,
+		receiveBufferSize: DefaultReceiveBufferSize,
 	}
 }
 
 // Refresh refreshes the pixels displayed
 func (o *OPC) Refresh(pixels []Color) {
+	// Drop all new updates on the floor once the buffer is full
+	if len(o.receive) == o.receiveBufferSize {
+		return
+	}
 	o.receive <- pixels
 }
 
