@@ -21,7 +21,7 @@ func main() {
 	log.Println("wall-fractal starting")
 	parseargs()
 
-	width := 200
+	width := 800
 	height := 200
 	c := opc.New(addr, width, height, 0*time.Second)
 
