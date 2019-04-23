@@ -190,7 +190,11 @@ func (o *OPC) writePixels() error {
 	}
 
 	_, err := o.connection.Write(o.packetData)
-	return err
+	if err != nil {
+		return err
+	}
+	log.Printf("Wrote packet data of length %d", len(o.packetData))
+	return nil
 }
 
 // Stop disconnects from the OPC server
@@ -205,6 +209,7 @@ func (o *OPC) connect() error {
 			log.Printf("Error connecting to OPC server: %v", err)
 			return err
 		}
+		log.Printf("Connected to OPC server: %s", o.addr)
 		o.connection = conn
 	}
 	return nil
