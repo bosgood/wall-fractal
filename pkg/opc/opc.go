@@ -1,59 +1,77 @@
 package opc
 
 import (
-	"io"
+	"fmt"
 	"log"
 	"math"
 	"net"
+	"time"
 )
 
-// ARGB represents an RGB value with alpha
-type ARGB uint32
+const (
+	DefaultRefreshRate = 500 * time.Millisecond
+)
+
+// Color represents an RGB value with alpha
+type Color uint32
 
 // Red gets the red component's value
-func (a ARGB) Red() byte {
+func (a Color) Red() byte {
 	return byte(a >> 24 & 0xFF)
 }
 
 // Green gets the red component's value
-func (a ARGB) Green() byte {
+func (a Color) Green() byte {
 	return byte(a >> 16 & 0xFF)
 }
 
 // Blue gets the red component's value
-func (a ARGB) Blue() byte {
+func (a Color) Blue() byte {
 	return byte(a >> 8 & 0xFF)
 }
 
-// ARGBColor gets a new aRGB value from its component values
-func ARGBColor(a, r, g, b byte) ARGB {
-	return ARGB(a | r | g | b)
+// ColorFromARGB gets a new Color value from its component values
+func ColorFromARGB(a, r, g, b byte) Color {
+	return Color(a | r | g | b)
 }
 
 // OPC manages connections to an Open Pixel Control server
 type OPC struct {
-	Host            string
-	Port            int
-	Width           int
-	Height          int
-	PixelLocations  []int
-	PacketData      []byte
-	FirmwareConfig  byte
-	ColorCorrection string
-	Output          io.Writer
-	Pending         io.Writer
-	Connection      net.Conn
-	Pixels          []ARGB
+	host            string
+	port            int
+	width           int
+	height          int
+	pixelLocations  []int
+	packetData      []byte
+	firmwareConfig  byte
+	colorCorrection string
+	connection      net.Conn
+	pixels          []Color
+	stop            chan struct{}
+	receive         chan []Color
+	refreshRate     time.Duration
 }
 
 // New creates a new OPC client
-func New(host string, port int, width, height int) *OPC {
-	return &OPC{
-		Host:   host,
-		Port:   port,
-		Width:  width,
-		Height: height,
+func New(host string, port int, width, height int, refreshRate time.Duration) *OPC {
+	var rate time.Duration
+	if refreshRate == rate {
+		rate = DefaultRefreshRate
 	}
+	return &OPC{
+		host:        host,
+		port:        port,
+		width:       width,
+		height:      height,
+		stop:        make(chan struct{}),
+		receive:     make(chan []Color),
+		refreshRate: rate,
+	}
+}
+
+// Refresh refreshes the pixels displayed
+func (o *OPC) Refresh(pixels []Color) {
+	o.receive <- pixels
 }
 
 // LED initializes a set of LEDs
@@ -61,16 +79,16 @@ func New(host string, port int, width, height int) *OPC {
 // helpers, e.g., LEDStrip, based on the type of LED hardware you have
 func (o *OPC) LED(index, x, y int) {
 	// For convenience, automatically grow the PixelLocations array
-	if o.PixelLocations == nil {
-		o.PixelLocations = make([]int, index+1)
-	} else if index >= len(o.PixelLocations) {
-		pl := o.PixelLocations
-		o.PixelLocations = make([]int, index+1)
+	if o.pixelLocations == nil {
+		o.pixelLocations = make([]int, index+1)
+	} else if index >= len(o.pixelLocations) {
+		pl := o.pixelLocations
+		o.pixelLocations = make([]int, index+1)
 		for i := range pl {
-			o.PixelLocations[i] = pl[i]
+			o.pixelLocations[i] = pl[i]
 		}
 	}
-	o.PixelLocations[index] = x + o.Width*y
+	o.pixelLocations[index] = x + o.width*y
 }
 
 // LEDStrip initializes a strip of LEDs
@@ -104,27 +122,23 @@ func (o *OPC) LEDStrip(index, count int, x, y, spacing, angle float64, reversed 
 // func (o *OPC) SendFirmwareConfigPacket(s string)
 // func (o *OPC) SendColorCorrectionPacket(s string)
 
-// Draw maps the pixel array to color values and sends it to the OPC server
-func (o *OPC) Draw() error {
-	if o.PixelLocations == nil || o.Connection == nil || o.Output == nil {
-		return nil
-	}
-
-	numPixels := len(o.PixelLocations)
+// draw maps the pixel array to color values and sends it to the OPC server
+func (o *OPC) draw() error {
+	numPixels := len(o.pixelLocations)
 	ledAddress := 4
 	o.SetPixelCount(numPixels)
 
 	for i := 0; i < numPixels; i++ {
-		pixelLocation := o.PixelLocations[i]
-		pixel := o.Pixels[pixelLocation]
-		pd := o.PacketData
+		pixelLocation := o.pixelLocations[i]
+		pixel := o.pixels[pixelLocation]
+		pd := o.packetData
 		pd[ledAddress] = byte(pixel >> 16)
 		pd[ledAddress+1] = byte(pixel >> 8)
 		pd[ledAddress+2] = byte(pixel)
 		ledAddress += 3
 	}
 
-	err := o.WritePixels()
+	err := o.writePixels()
 	if err != nil {
 		return err
 	}
@@ -136,51 +150,84 @@ func (o *OPC) Draw() error {
 func (o *OPC) SetPixelCount(numPixels int) {
 	numBytes := 3 * numPixels
 	packetLen := 4 + numBytes
-	if o.PacketData == nil || len(o.PacketData) != packetLen {
+	if o.packetData == nil || len(o.packetData) != packetLen {
 		// Set up our packet buffer
 		pd := make([]byte, packetLen)
 		pd[0] = byte(0x00)            // Channel
 		pd[1] = byte(0x00)            // Command (Set pixel colors)
 		pd[2] = byte(numBytes >> 8)   // Length high byte
 		pd[3] = byte(numBytes & 0xFF) // Length low byte
-		o.PacketData = pd
+		o.packetData = pd
 	}
 }
 
 // SetPixel sets the color value of a pixel
-func (o *OPC) SetPixel(number int, c ARGB) {
+func (o *OPC) SetPixel(number int, c Color) {
 	offset := 4 + number*3
-	if o.PacketData == nil || len(o.PacketData) < offset+3 {
+	if o.packetData == nil || len(o.packetData) < offset+3 {
 		o.SetPixelCount(number + 1)
 	}
 
-	pd := o.PacketData
+	pd := o.packetData
 	pd[offset] = byte(c >> 16)
 	pd[offset+1] = byte(c >> 8)
 	pd[offset+2] = byte(c)
 }
 
-// WritePixels writes the current buffer of pixel values to the OPC server
-func (o *OPC) WritePixels() error {
-	if o.PacketData == nil || len(o.PacketData) == 0 || o.Output == nil {
+// writePixels writes the current buffer of pixel values to the OPC server
+func (o *OPC) writePixels() error {
+	if o.packetData == nil || len(o.packetData) == 0 {
 		return nil
 	}
 
-	_, err := o.Output.Write(o.PacketData)
+	_, err := o.connection.Write(o.packetData)
 	return err
 }
 
-// Close disconnects from the OPC server
-func (o *OPC) Close() {
-	if o.Output != nil {
-		log.Println("Disconnecting from OPC server")
-		o.Output = nil
-	}
-	if o.Connection != nil {
-		_ = o.Connection.Close()
-	}
-	o.Pending = nil
+// Stop disconnects from the OPC server
+func (o *OPC) Stop() {
+	o.stop <- struct{}{}
 }
 
-// Run starts the message loop
-func (o *OPC) Run() {}
+func (o *OPC) connect() error {
+	if o.connection == nil {
+		conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", o.host, o.port))
+		if err != nil {
+			log.Printf("Error connecting to OPC server: %v", err)
+			return err
+		}
+		o.connection = conn
+	}
+	return nil
+}
+
+// Run starts the reconnection message loop
+func (o *OPC) Run() {
+	t := time.NewTicker(o.refreshRate)
+	defer func() {
+		if o.connection != nil {
+			log.Println("Closing connection to OPC server")
+			_ = o.connection.Close()
+		}
+	}()
+
+	for {
+		select {
+		case <-o.stop:
+			break
+		case p := <-o.receive:
+			o.pixels = p
+		case <-t.C:
+			err := o.connect()
+			if err != nil {
+				log.Printf("Error connecting to OPC server: %v\n", err)
+				continue
+			}
+			err = o.draw()
+			if err != nil {
+				log.Printf("Error sending pixel data to server: %v\n", err)
+				continue
+			}
+		}
+	}
+}
