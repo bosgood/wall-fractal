@@ -1,7 +1,6 @@
 package opc
 
 import (
-	"fmt"
 	"log"
 	"math"
 	"net"
@@ -9,6 +8,7 @@ import (
 )
 
 const (
+	// DefaultRefreshRate is the frequency at which the pixel data will be sent
 	DefaultRefreshRate = 500 * time.Millisecond
 )
 
@@ -37,8 +37,7 @@ func ColorFromARGB(a, r, g, b byte) Color {
 
 // OPC manages connections to an Open Pixel Control server
 type OPC struct {
-	host            string
-	port            int
+	addr            string
 	width           int
 	height          int
 	pixelLocations  []int
@@ -53,14 +52,13 @@ type OPC struct {
 }
 
 // New creates a new OPC client
-func New(host string, port int, width, height int, refreshRate time.Duration) *OPC {
+func New(addr string, width, height int, refreshRate time.Duration) *OPC {
 	var rate time.Duration
 	if refreshRate == rate {
 		rate = DefaultRefreshRate
 	}
 	return &OPC{
-		host:        host,
-		port:        port,
+		addr:        addr,
 		width:       width,
 		height:      height,
 		stop:        make(chan struct{}),
@@ -191,7 +189,7 @@ func (o *OPC) Stop() {
 
 func (o *OPC) connect() error {
 	if o.connection == nil {
-		conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", o.host, o.port))
+		conn, err := net.Dial("tcp", o.addr)
 		if err != nil {
 			log.Printf("Error connecting to OPC server: %v", err)
 			return err

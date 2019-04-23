@@ -3,43 +3,40 @@ package main
 import (
 	"flag"
 	"log"
+	"time"
 
-	"github.com/kellydunn/go-opc"
+	"github.com/bosgood/wall-fractal/pkg/opc"
 )
 
 var (
-	addr       string
-	opcChannel int
+	addr string
 )
 
 func parseargs() {
 	flag.StringVar(&addr, "addr", "127.0.0.1:7890", "Address and port of the OPC server to connect to")
-	flag.IntVar(&opcChannel, "channel", opc.BROADCAST_CHANNEL, "OPC channel to send to")
 	flag.Parse()
 }
 
 func main() {
 	log.Println("wall-fractal starting")
-
 	parseargs()
 
-	c := opc.NewClient()
-	err := c.Connect("tcp", addr)
-	if err != nil {
-		log.Fatalf("FATAL: failed to connect to OPC server at: %s", addr)
-	}
+	width := 200
+	height := 200
+	c := opc.New(addr, width, height, 0*time.Second)
 
-	log.Printf("Connected to server at: %s", addr)
+	x := float64(width) / 2
+	c.LEDStrip(0, 64, x, float64(height)/2-30, float64(width)/70.0, 0, false)
+	c.LEDStrip(65, 64, x, float64(height)/2+0, float64(width)/70.0, 0, false)
+	c.LEDStrip(129, 64, x, float64(height)/2+30, float64(width)/70.0, 0, false)
+	c.LEDStrip(193, 64, x, float64(height)/2+60, float64(width)/70.0, 0, false)
 
-	for ch := 1; ch < 64; ch++ {
-		m := opc.NewMessage(uint8(ch))
-		for i := 0; i < 64; i++ {
-			m.SetPixelColor(i, 255, 255, 255)
-		}
-		err = c.Send(m)
-		if err != nil {
-			log.Fatalf("FATAL: failed to send message: %s", err)
-		}
-		log.Printf("Sent message to OPC channel %d", ch)
+	numPixels := width * height
+	pixels := make([]opc.Color, numPixels)
+	for i := 0; i < numPixels; i++ {
+		pixels[i] = opc.ColorFromARGB(255, 255, 255, 255)
 	}
+	c.Refresh(pixels)
+	go c.Run()
+	select {}
 }
